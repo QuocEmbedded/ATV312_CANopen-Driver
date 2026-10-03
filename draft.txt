@@ -1,0 +1,836 @@
+/*************  Ham doc Temp, Press, Hum (RAW) ************/
+// // Ham doc nhiet do Raw
+// int32_t My_Bme680_SPI_Temp_Read(void)
+// {
+//     uint8_t buff[3];
+//     uint32_t temp_raw = 0;
+//     My_BME680_SPI_Transmiter(CTRL_MEAS, BME680_OSRS_T_2X | BME680_MODE_FORCED);
+//     Delay_ms_TIM2(20);
+//     My_BME680_SPI_Receiver(BME680_REG_TEMP_MSB, buff, 3);
+//     temp_raw = ((uint32_t)buff[0] << 12) | ((uint32_t)buff[1] << 4) | ((uint32_t)buff[2] >> 4);
+//     return bme680_compensate_temp(temp_raw);
+// }
+
+// // Ham doc ap suat Raw
+// int32_t My_Bme680_SPI_Pressure_Read(void)
+// {
+//     uint8_t buff[3];
+//     uint32_t pressure_raw = 0;
+//     My_BME680_SPI_Transmiter(CTRL_MEAS, BME680_OSRS_P_4X | BME680_MODE_FORCED);
+//     Delay_ms_TIM2(20);
+//     My_BME680_SPI_Receiver(BME680_REG_PRESS_MSB, buff, 3);
+//     pressure_raw = ((uint32_t)buff[0]<<12) | ((uint32_t)buff[1]<<4) | ((uint32_t)buff[2]>>4);
+//     return pressure_raw;
+// }
+
+// //Ham doc do am Raw
+// int32_t My_Bme680_SPI_Humidity_Read(void)
+// {
+//     uint8_t buff[3];
+//     uint16_t humidity_raw = 0;
+//     My_BME680_SPI_Transmiter(CTRL_MEAS, BME680_MODE_FORCED); // bat forced mode
+//     Delay_ms_TIM2(20);
+//     My_BME680_SPI_Transmiter(CTRL_HUM_REG, BME680_OSRS_H_1X); // bat sampling 1x cho hum
+//     Delay_ms_TIM2(5);
+//     My_BME680_SPI_Receiver(BME680_REG_HUM_MSB, buff, 3);
+//     humidity_raw = ((uint16_t)buff[0]<<8) | ((uint16_t)buff[1]);
+//     return humidity_raw;
+// }
+// /**********************************************/
+
+
+// muc tieu cua thu vien nay la doc gia tri nhiet do cua cam bien
+
+#include "my_bme_680_spi.h"
+
+
+
+
+
+typedef struct
+
+{
+
+    // Thong so calib nhiet do
+
+    uint16_t par_t1;
+
+    uint16_t par_t2;
+
+    uint8_t  par_t3;
+
+    // Thong so calib ap suat
+
+    uint16_t par_p1;   
+
+    int16_t  par_p2;   
+
+    int8_t   par_p3;   
+
+    int16_t  par_p4;
+
+    int16_t  par_p5;
+
+    int8_t   par_p7;
+
+    int8_t   par_p6;
+
+    int16_t  par_p8;
+
+    int16_t  par_p9;
+
+    uint8_t  par_p10;
+
+    // Thong so calib do am
+
+    uint16_t par_h1;
+
+    uint16_t par_h2;
+
+    int8_t par_h3;
+
+    int8_t par_h4;
+
+    int8_t par_h5;
+
+    uint8_t par_h6;
+
+    int8_t par_h7;
+
+
+
+}bme680_calib_t;
+
+
+
+typedef struct {
+
+    int32_t temperature; /* 0.01 degC */
+
+    int32_t pressure;    /* Pascal (Pa) */
+
+    uint32_t humidity;   /* 0.001 %RH */
+
+}bme680_data_t;
+
+
+
+
+
+bme680_calib_t bme_calib;
+
+uint32_t t_fine;
+
+
+
+void My_BME680_SPI_Transmiter(uint8_t reg, uint8_t value)
+
+{
+
+    // tao goi tin
+
+    uint8_t tx_buffer[2];
+
+    tx_buffer[0] = reg & BME680_SPI_WRITE_MASK;
+
+    tx_buffer[1] = value;
+
+
+
+    // bat truyen
+
+    cs_enable();
+
+    SPI_Transmiter(tx_buffer, 2);
+
+    cs_disable();
+
+}
+
+
+
+
+
+void My_BME680_SPI_Receiver(uint8_t reg, uint8_t *rx_data, uint32_t len)
+
+{
+
+    reg = reg | BME680_SPI_READ_MASK;
+
+    cs_enable();
+
+    SPI_Transmiter(&reg, 1);
+
+    SPI_Receiver(rx_data, len);
+
+    cs_disable();
+
+}
+
+
+
+void My_BME680_SPI_All_Calib(void)
+
+{
+
+    uint8_t rx_buffer_calib[3];
+
+    My_BME680_SPI_Receiver(PAR_T1, rx_buffer_calib, 2);
+
+    bme_calib.par_t1 = (uint16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_T2, rx_buffer_calib, 2);
+
+    bme_calib.par_t2 = (int16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_T3, rx_buffer_calib, 1);
+
+    bme_calib.par_t3 = (rx_buffer_calib[0]);
+
+
+
+    /***************************************** */
+
+    My_BME680_SPI_Receiver(PAR_P1, rx_buffer_calib, 2);
+
+    bme_calib.par_p1 = (uint16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P2, rx_buffer_calib, 2);
+
+    bme_calib.par_p2 = (int16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P3, rx_buffer_calib, 1);
+
+    bme_calib.par_p3 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P4, rx_buffer_calib, 2);
+
+    bme_calib.par_p4 = (int16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P5, rx_buffer_calib, 2);
+
+    bme_calib.par_p5 = (int16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P6, rx_buffer_calib, 1);
+
+    bme_calib.par_p6 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P7, rx_buffer_calib, 1);
+
+    bme_calib.par_p7 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P8, rx_buffer_calib, 2);
+
+    bme_calib.par_p8 = (int16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P9, rx_buffer_calib, 2);
+
+    bme_calib.par_p9 = (int16_t)((rx_buffer_calib[1]<<8) |(rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_P10, rx_buffer_calib, 1);
+
+    bme_calib.par_p10 = (uint8_t)((rx_buffer_calib[0]));
+
+    /******************************************************************8 */
+
+    My_BME680_SPI_Receiver(PAR_H1, rx_buffer_calib, 3);
+
+    bme_calib.par_h1 = (uint16_t)(((uint16_t)rx_buffer_calib[2]<<4) | (rx_buffer_calib[1])&0x0F);
+
+    bme_calib.par_h2 = (uint16_t)(((rx_buffer_calib[1]&0xF0)>>4) | (uint16_t)(rx_buffer_calib[0])<<4);
+
+
+
+    My_BME680_SPI_Receiver(PAR_H3, rx_buffer_calib, 1);
+
+    bme_calib.par_h3 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_H4, rx_buffer_calib, 1);
+
+    bme_calib.par_h4 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_H5, rx_buffer_calib, 1);
+
+    bme_calib.par_h5 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_H6, rx_buffer_calib, 1);
+
+    bme_calib.par_h6 = (uint8_t)((rx_buffer_calib[0]));
+
+
+
+    My_BME680_SPI_Receiver(PAR_H7, rx_buffer_calib, 1);
+
+    bme_calib.par_h7 = (int8_t)((rx_buffer_calib[0]));
+
+
+
+}
+
+
+
+uint8_t My_BME68_SPI_Init(void)
+
+{
+
+    uint8_t ID_Chip = 0;
+
+    Gpio_Spi_Init();
+
+    Spi_Config();
+
+    cs_disable(); 
+
+    Delay_ms_TIM2(100);
+
+
+
+    My_BME680_SPI_Transmiter(STATUS_REG, 0x00);
+
+    Delay_ms_TIM2(10);
+
+
+
+    My_BME680_SPI_Transmiter(CTRL_RESET, BME680_SOFT_RESET_MASK);
+
+    Delay_ms_TIM2(50);
+
+
+
+    My_BME680_SPI_Receiver(CTRL_ID, &ID_Chip, 1U);
+
+    if (ID_Chip != RST_STATE)
+
+    { 
+
+        return 0; 
+
+    }
+
+    My_BME680_SPI_Temp_Calib();
+
+
+
+    My_BME680_SPI_Transmiter(STATUS_REG, PAGE_SELECT_1);
+
+    
+
+    My_BME680_SPI_Transmiter(CTRL_HUM_REG, OSRS_H);
+
+    My_BME680_SPI_Transmiter(CONFIG_REG, IIR); // bat cai nay de nhiet do doc duoc 20bit
+
+    
+
+    return 1;
+
+}
+
+
+
+int32_t bme680_compensate_temp(uint32_t temp_adc) {
+
+    int32_t var1, var2, var3;
+
+    int32_t temp_comp;
+
+
+
+    var1 = ((int32_t)temp_adc >> 3) - ((int32_t)bme_calib.par_t1 << 1);
+
+    var2 = (var1 * (int32_t)bme_calib.par_t2) >> 11;
+
+    var3 = (((((var1 >> 1) * (var1 >> 1)) >> 12) * ((int32_t)bme_calib.par_t3 << 4)) >> 14);
+
+    
+
+    t_fine = var2 + var3;     
+
+    temp_comp = ((t_fine * 5) + 128) >> 8;
+
+
+
+    return temp_comp; 
+
+}
+
+
+
+int32_t bme680_compensate_pressure(uint32_t press_adc)
+
+{
+
+    int32_t var1;
+
+    int32_t var2;
+
+    int32_t var3;
+
+    int32_t press_comp;
+
+
+
+    // dua vao t_fine de tinh toan nen nho la phai goi ham nhiet do truoc
+
+    var1 = ((int32_t)t_fine >> 1) - 64000;
+
+    var2 = ((((var1 >> 2) * (var1 >> 2)) >> 11) * (int32_t)bme_calib.par_p6) >> 2;
+
+    var2 = var2 + ((var1 * (int32_t)bme_calib.par_p5) << 1);
+
+    var2 = (var2 >> 2) + ((int32_t)bme_calib.par_p4 << 16);
+
+    var1 = (((((var1 >> 2) * (var1 >> 2)) >> 13) * ((int32_t)bme_calib.par_p3 << 5)) >> 3) 
+
+           + (((int32_t)bme_calib.par_p2 * var1) >> 1);
+
+    var1 = var1 >> 18;
+
+    var1 = ((32768 + var1) * (int32_t)bme_calib.par_p1) >> 15;
+
+
+
+    /* Tranh chia cho 0 neu var1 = 0 */
+
+    if (var1 == 0)
+
+    {
+
+        return 0;
+
+    }
+
+    press_comp = 1048576 - press_adc;
+
+    press_comp = (uint32_t)((press_comp - (var2 >> 12)) * ((uint32_t)3125));
+
+
+
+    if (press_comp >= (1 << 30))
+
+    {
+
+        press_comp = ((press_comp / (uint32_t)var1) << 1);
+
+    }
+
+    else
+
+    {
+
+        press_comp = ((press_comp << 1) / (uint32_t)var1);
+
+    }
+
+
+
+    var1 = ((int32_t)bme_calib.par_p9 * (int32_t)(((press_comp >> 3) * (press_comp >> 3)) >> 13)) >> 12;
+
+    var2 = ((int32_t)(press_comp >> 2) * (int32_t)bme_calib.par_p8) >> 13;
+
+    var3 = ((int32_t)(press_comp >> 8) * (int32_t)(press_comp >> 8) * (int32_t)(press_comp >> 8) 
+
+            * (int32_t)bme_calib.par_p10) >> 17;
+
+
+
+    press_comp = (int32_t)(press_comp) + ((var1 + var2 + var3 + ((int32_t)bme_calib.par_p7 << 7)) >> 4);
+
+
+
+    return press_comp; /* Đơn vị trả về: Pascal (Pa) */
+
+}
+
+
+
+uint32_t bme680_compensate_humidity(uint16_t hum_adc, int32_t temp_comp)
+
+{
+
+    int32_t temp_scaled;
+
+    int32_t var1;
+
+    int32_t var2;
+
+    int32_t var3;
+
+    int32_t var4;
+
+    int32_t var5;
+
+    int32_t var6;
+
+    int32_t hum_comp;
+
+
+
+    /* temp_comp là giá trị nhiệt độ bù trừ (đơn vị 0.01 degC) vừa tính được */
+
+    temp_scaled = (int32_t)temp_comp;
+
+
+
+    var1 = (int32_t)hum_adc - (int32_t)((int32_t)bme_calib.par_h1 << 4) -
+
+           (((temp_scaled * (int32_t)bme_calib.par_h3) / ((int32_t)100)) >> 1);
+
+
+
+    var2 = ((int32_t)bme_calib.par_h2 *
+
+            (((temp_scaled * (int32_t)bme_calib.par_h4) / ((int32_t)100)) +
+
+             (((temp_scaled * ((temp_scaled * (int32_t)bme_calib.par_h5) / ((int32_t)100))) >> 6) / ((int32_t)100)) +
+
+             ((int32_t)(1 << 14)))) >> 10;
+
+
+
+    var3 = var1 * var2;
+
+
+
+    var4 = (((int32_t)bme_calib.par_h6 << 7) +
+
+            ((temp_scaled * (int32_t)bme_calib.par_h7) / ((int32_t)100))) >> 4;
+
+
+
+    var5 = ((var3 >> 14) * (var3 >> 14)) >> 10;
+
+
+
+    var6 = (var4 * var5) >> 1;
+
+
+
+    hum_comp = (((var3 + var6) >> 10) * ((int32_t)1000)) >> 12;
+
+
+
+    /* Giới hạn độ ẩm trong dải vật lý 0% - 100% (0 đến 100000) */
+
+    if (hum_comp > 100000)
+
+    {
+
+        hum_comp = 100000;
+
+    }
+
+    else if (hum_comp < 0)
+
+    {
+
+        hum_comp = 0;
+
+    }
+
+
+
+    return (uint32_t)hum_comp;
+
+}
+
+
+
+uint8_t My_Bme680_Read_All(bme680_data_t *data)
+
+{
+
+    uint8_t buff[8];
+
+    uint32_t press_raw;
+
+    uint32_t temp_raw;
+
+    uint16_t hum_raw;
+
+
+
+    /* 1. Ghi ctrl_hum trước (0x72) */
+
+    My_BME680_SPI_Transmiter(CTRL_HUM_REG, BME680_OSRS_H_1X);
+
+
+
+    /* 2. Ghi ctrl_meas (0x74) kích hoạt cả Temp, Press và Forced mode */
+
+    uint8_t ctrl_meas = BME680_OSRS_T_2X | BME680_OSRS_P_4X | BME680_MODE_FORCED;
+
+    My_BME680_SPI_Transmiter(CTRL_MEAS, ctrl_meas);
+
+
+
+    /* 3. Đợi quá trình chuyển đổi ADC hoàn tất */
+
+    Delay_ms_TIM2(20);
+
+
+
+    /* 4. Đọc burst 8 byte từ thanh ghi 0x1F */
+
+    My_BME680_SPI_Receiver(BME680_REG_PRESS_MSB, buff, 8);
+
+
+
+    /* 5. Tách dữ liệu raw */
+
+    press_raw = ((uint32_t)buff[0] << 12) | ((uint32_t)buff[1] << 4) | ((uint32_t)buff[2] >> 4);
+
+    temp_raw  = ((uint32_t)buff[3] << 12) | ((uint32_t)buff[4] << 4) | ((uint32_t)buff[5] >> 4);
+
+    hum_raw   = ((uint16_t)buff[6] << 8)  | ((uint16_t)buff[7]);
+
+
+
+    /* 6. Tính bù trừ theo đúng thứ tự: Temp (để cập nhật t_fine) -> Press -> Hum */
+
+    data->temperature = bme680_compensate_temp(temp_raw);
+
+    data->pressure    = bme680_compensate_pressure(press_raw);
+
+    data->humidity    = bme680_compensate_humidity(hum_raw, data->temperature);
+
+    return 1;
+
+}
+
+
+
+void Print_Temperature(int32_t temp_val)
+
+{
+
+    char num_buf[16];
+
+
+
+    /* Xử lý số âm nếu nhiệt độ dưới 0 độ C */
+
+    if (temp_val < 0)
+
+    {
+
+        Send_String("-");
+
+        temp_val = -temp_val;
+
+    }
+
+
+
+    int32_t integer_part = temp_val / 100;
+
+    int32_t fractional_part = temp_val % 100;
+
+
+
+    Send_String("Nhiet do: ");
+
+
+
+    /* In phần nguyên */
+
+    Int_To_String(integer_part, num_buf);
+
+    Send_String(num_buf);
+
+
+
+    Send_String(".");
+
+
+
+    /* Đảm bảo in đủ 2 chữ số phần thập phân (ví dụ 05 thay vì 5) */
+
+    if (fractional_part < 10)
+
+    {
+
+        Send_String("0");
+
+    }
+
+    Int_To_String(fractional_part, num_buf);
+
+    Send_String(num_buf);
+
+
+
+    Send_String(" C\r\n");
+
+} 
+
+
+
+/////////////I2C/////////
+#include "i2c.h"
+#include "uart.h"
+
+
+#define CR1_START (1U<<8)
+#define CR1_STOP  (1U<<9)
+#define CR1_ACK   (1U<<10)
+
+
+#define SR1_START (1U<<0)
+#define SR1_ADDR  (1U<<1)
+#define SR1_BTF   (1U<<2)
+#define SR1_RXNE  (1U<<6)
+#define SR1_TXE   (1U<<7)
+#define SR1_AF    (1U<<10)
+
+#define SR2_BUSY  (1U<<1)
+
+
+
+void I2C1_Init()
+{
+    // I. Cau hinh chan PB6(SCL). PB7(SDA)
+    RCC->AHB1ENR  |=  (1U<<1);
+
+    GPIOB->MODER &= ~(3U<<12);
+    GPIOB->MODER  |= (2U<<12);
+    GPIOB->MODER &= ~(3U<<14);
+    GPIOB->MODER  |= (2U<<14);
+
+    GPIOB->OTYPER |=  (1U<<6);
+    GPIOB->OTYPER |=  (1U<<7);
+
+    GPIOB->PUPDR  |= (1U<<12);
+    GPIOB->PUPDR  |= (1U<<14);
+ 
+    GPIOB->AFR[0] |=  (4U<<24);
+    GPIOB->AFR[0] |= (4U<<28);
+
+    // II. Cau hinh I2C
+    RCC->APB1ENR  |= (1U<<21);
+    I2C1->CR1     |= (1U<<15); // bat reset I2C
+    I2C1->CR1    &= ~(1U<<15); // xoa reset I2C
+    
+    I2C1->CR2      = (0x2A); // set 42Mhz
+    I2C1->CCR      = (0xD2); // chay o 100kHZ
+    I2C1->TRISE    = (0x2B); // chu ki nhip bus APB1
+
+    I2C1->CR1      |= (1U<<0); // bat I2C
+}
+
+void I2C1_Read_Byte(uint8_t saddr, uint8_t maddr, uint8_t* data)
+{
+    while (I2C1->SR2 & (SR2_BUSY)); // kiem tra duong day co dang ban khong
+    
+    // Goi tin:
+    //start -> [addr frame -> w/r -> ack] -> data frame -> ack ->...->stop.
+    //1. start
+    I2C1->CR1 |= (CR1_START); // tien hanh start (keo SDA xuong 0)
+    while (!(I2C1->SR1 & (SR1_START))); // cho co bao da bat I2C hoan thanh
+    //2. addr frame -> w/r
+    I2C1->DR = (saddr<<1);
+    while (!(I2C1->SR1 & SR1_ADDR));
+    (void)I2C1->SR2;
+    //3. data frame
+    I2C1->DR = maddr; // gui data
+    while (!(I2C1->SR1 & SR1_TXE)); // cho co bao da gui xong
+    
+    // muc tieu la read nen bat dau lam lai chu ki voi yeu cau la read
+    I2C1->CR1 |= (CR1_START);
+    while (!(I2C1->SR1 & (SR1_START))); // cho co bao da bat I2C hoan thanh
+    I2C1->DR = (saddr<<1) | 1; // lan nay gui tuy nhien yeu cau read nen ghi bit 0 = 1
+    while (!(I2C1->SR1 & SR1_ADDR));
+    I2C1->CR1 &= ~(CR1_ACK); // bao bit 10 la nack
+    (void)I2C1->SR2;
+    I2C1->CR1 |= CR1_STOP;
+
+    while (!(I2C1->SR1 & SR1_RXNE)); // cho co bao da gui xong
+    *data = I2C1->DR;
+}
+
+void I2C1_Burst_Read(uint8_t saddr, uint8_t maddr, int n, uint8_t* data)
+{
+    while (I2C1->SR2 & SR2_BUSY);
+    I2C1->CR1 |= (CR1_START); // bat start 
+    while (!(I2C1->SR1 & SR1_START)); // kiem tra co start
+
+    I2C1->DR = (saddr << 1); // gui dia chi
+    while (!(I2C1->SR1 & SR1_ADDR)); // cho co gui xong
+    (void)I2C1->SR2; // xoa co
+
+    I2C1->DR = maddr; // gui thanh ghi can doc
+    while (!(I2C1->SR1 & SR1_TXE)); // kiem tra co gui xong chua
+
+    I2C1->CR1 |= (CR1_START); // gui lai lan nua
+    while (!(I2C1->SR1 & SR1_START)); // cho co start xong chua
+    I2C1->DR = (saddr << 1) | 1;
+    while (!(I2C1->SR1 & SR1_ADDR)); // cho co xem thu addressing xong chua
+    (void)I2C1->SR2; // xoa co addressing
+
+    I2C1->CR1 |= (CR1_ACK); // BAT ACK
+    while (n > 0U)
+    {
+        if  (n == 1U)
+        {
+            I2C1->CR1 &= ~(CR1_ACK); // bao bit 10 la nack
+            I2C1->CR1 |= CR1_STOP;
+            while (!(I2C1->SR1 & SR1_RXNE)); // cho co bao da gui xong
+            *data++ = I2C1->DR;
+            break;
+        }
+        else
+        {
+            while (!(I2C1->SR1 & SR1_RXNE));
+            *data++ = I2C1->DR;
+            n--;
+        }
+
+    }
+}
+
+void I2C1_Write(uint8_t saddr, uint8_t maddr, uint8_t data)
+{
+    while (I2C1->SR2 & SR2_BUSY);
+    I2C1->CR1 |= (CR1_START);
+    while (!(I2C1->SR1 & SR1_START));
+    
+    I2C1->DR = (saddr << 1);
+    while (!(I2C1->SR1 & SR1_ADDR));
+    (void)I2C1->SR2;
+
+    I2C1->DR = maddr;
+    while (!(I2C1->SR1 & SR1_TXE));
+
+    I2C1->DR = data;
+    while (!(I2C1->SR1 & SR1_TXE));
+
+    while (!(I2C1->SR1 & SR1_BTF));
+    I2C1->CR1 |= CR1_STOP;
+}
