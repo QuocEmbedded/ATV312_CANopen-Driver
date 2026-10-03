@@ -22,7 +22,7 @@ BIN = $(CP) -O binary -S
 C_SOURCES = \
 $(wildcard Core/Src/*.c) \
 $(wildcard Drivers/Bsp/Src/*.c) \
-$(wildcard Drivers/CAN_ESP32/Src/*.c)
+$(wildcard Drivers/CAN_ATV312/Src/*.c)
 
 # Tên file Assembly khởi động
 ASM_SOURCES = Startup/startup_stm32f407xx.s
@@ -30,7 +30,7 @@ ASM_SOURCES = Startup/startup_stm32f407xx.s
 C_INCLUDES = \
 -ICore/Inc \
 -IDrivers/Bsp/Inc \
--IDrivers/CAN_ESP32/Inc \
+-IDrivers/CAN_ATV312/Inc \
 -IDrivers/Cmsis/Include \
 -IDrivers/Cmsis/Devices/ST/STM32F4xx/Include
 # =============================================================================
