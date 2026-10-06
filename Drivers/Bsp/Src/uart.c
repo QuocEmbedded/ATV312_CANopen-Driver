@@ -177,3 +177,58 @@ void Int_To_String(int32_t num, char *str)
         end--;
     }
 }
+
+void UART_Print_Hex16(uint16_t val)
+{
+    const char hex_chars[] = "0123456789ABCDEF";
+    char str[7];
+    str[0] = '0';
+    str[1] = 'x';
+    str[2] = hex_chars[(val >> 12) & 0x0F];
+    str[3] = hex_chars[(val >> 8)  & 0x0F];
+    str[4] = hex_chars[(val >> 4)  & 0x0F];
+    str[5] = hex_chars[val & 0x0F];
+    str[6] = '\0';
+    Send_String(str);
+}
+
+/**
+ * @brief In số thực có 1 chữ số thập phân ra chuỗi (ví dụ 30.5)
+ * @param val  Giá trị float cần in
+ * @param str  Buffer chứa chuỗi kết quả
+ */
+void Float_To_String_1Dec(float val, char *str)
+{
+    // Xử lý số âm nếu có
+    if (val < 0.0f)
+    {
+        *str++ = '-';
+        val = -val;
+    }
+
+    // Tách phần nguyên và phần thập phân (1 chữ số sau dấu phẩy)
+    int32_t int_part = (int32_t)val;
+    int32_t dec_part = (int32_t)((val - (float)int_part) * 10.0f + 0.5f); // Làm tròn
+
+    if (dec_part >= 10)
+    {
+        int_part += 1;
+        dec_part = 0;
+    }
+
+    // Đổi phần nguyên
+    char temp[16];
+    Int_To_String(int_part, temp);
+
+    // Ghép phần nguyên
+    char *p = temp;
+    while (*p != '\0')
+    {
+        *str++ = *p++;
+    }
+
+    // Ghép dấu chấm và phần thập phân
+    *str++ = '.';
+    *str++ = dec_part + '0';
+    *str = '\0';
+}
